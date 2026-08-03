@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: leadflow-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-leadflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-leadflow}
+      POSTGRES_DB: ${POSTGRES_DB:-leadflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/seeds.sql:/docker-entrypoint-initdb.d/02-seeds.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leadflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: leadflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leadflow-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./ia:/app/ia
+      - ./automacoes:/app/automacoes
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: leadflow-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    command: npm run dev
+
+  # Evolution API (WhatsApp)
+  evolution:
+    image: atendai/evolution-api:v2.0.9
+    container_name: leadflow-whatsapp
+    environment:
+      - SERVER_URL=http://localhost:8080
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-leadflow-evolution}
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=${DATABASE_URL:-postgresql://leadflow:leadflow@postgres:5432/leadflow}
+    ports:
+      - "8080:8080"
+    volumes:
+      - evolution_data:/evolution/store
+    depends_on:
+      - postgres
+      - redis
+
+  # Worker (Celery) pra automações
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leadflow-worker
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - ./ia:/app/ia
+      - ./automacoes:/app/automacoes
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A src.celery_app worker --loglevel=info --concurrency=4
+
+volumes:
+  postgres_data:
+  redis_data:
+  evolution_data:
