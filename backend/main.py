@@ -1,10 +1,12 @@
 """
 LeadFlow CRM - Backend API
-FastAPI + PostgreSQL + Redis
+FastAPI + PostgreSQL + Redis + Frontend
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
 from contextlib import asynccontextmanager
 import os
 
@@ -32,18 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    return {
-        "app": "LeadFlow",
-        "version": "1.0.0",
-        "status": "online",
-        "docs": "/docs",
-    }
-
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "domain": "fhlabs.online"}
+    return {"status": "healthy"}
 
 # Rotas da API
 try:
@@ -56,6 +49,36 @@ try:
     app.include_router(relatorios.router, prefix="/api/relatorios", tags=["Relatórios"])
 except Exception as e:
     print(f"⚠️  Erro ao carregar rotas: {e}")
+
+# Serve frontend static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+    # Catch-all pra servir o frontend
+    @app.get("/{full_path:path}")
+    async def serve_frontend(request: Request, full_path: str):
+        # Tenta servir arquivo estático primeiro
+        file_path = os.path.join(static_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # Senão, serve o index.html (SPA)
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+
+        return HTMLResponse("<h1>LeadFlow - Frontend não encontrado</h1>", status_code=404)
+else:
+    @app.get("/")
+    async def root():
+        return {
+            "app": "LeadFlow",
+            "version": "1.0.0",
+            "status": "online",
+            "docs": "/docs",
+            "frontend": "Não buildado ainda",
+        }
 
 if __name__ == "__main__":
     import uvicorn
