@@ -8,6 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 
+# Garante que PORT existe
+os.environ.setdefault("PORT", "8080")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 LeadFlow API iniciando...")
