@@ -40,7 +40,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "domain": "fhlabs.online"}
 
 # Rotas da API
 try:
